@@ -34,6 +34,7 @@ input,select,textarea{background:var(--card);border:1px solid var(--line);border
 .sw{display:inline-flex;align-items:center;gap:5px;margin-right:12px;white-space:nowrap}
 .sw::before{content:"";width:12px;height:12px;border-radius:3px;background:var(--bc,transparent);border:1px solid var(--line)}
 .slot{display:flex;gap:8px;align-items:center;margin-bottom:6px}.slot span{width:70px;color:var(--mute);font-size:13px;flex:none}
+.sub2{margin:-4px 0 12px 14px;padding-left:10px;border-left:2px solid var(--line)}.sub3{margin-left:30px}
 .rk-head{display:flex;align-items:center;gap:10px}.rk-head h3{flex:1}
 .dot{width:10px;height:10px;border-radius:50%;background:#f90;flex:none}
 .pill.novo{background:#f90;color:#1c1b19;font-weight:600}
@@ -72,7 +73,7 @@ async function api(action, payload = {}) {
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const app = $('#app'), dlg = $('#dlg');
-const st = { tab: 'series', sub: 'assistindo', q: '', titulos: [], livros: [], rank: [], estado: null, lano: 'todos', soNovas: false };
+const st = { tab: 'series', sub: 'assistindo', q: '', titulos: [], livros: [], rank: [], estado: null, lano: 'todos', soNovas: false, rk: 'vida', rkAno: null, anosExtra: [] };
 
 const SUBS = {
   series: [['assistindo','Assistindo'],['para_assistir','Para assistir'],['encerrada','Encerradas'],['miniserie','Minisséries']],
@@ -289,14 +290,20 @@ function viewRanking(host) {
   const nome = id => st.livros.find(l => l.id === id)?.titulo ?? '?';
   const rk = (tipo, ano) => st.rank.filter(r => r.tipo === tipo && (ano == null || r.ano === ano)).sort((a, b) => a.posicao - b.posicao);
   const lidos = ano => st.livros.filter(l => l.status === 'lido' && (ano == null || l.ano_leitura === ano)).map(l => l.titulo);
-  const bloco = (titulo, itens, edit, rotulo = r => r.posicao) => `<div class="rk-head"><h3>${titulo}</h3><button data-rk="${edit}">Editar</button></div>` +
+  const bloco = (titulo, itens, edit, rotulo = r => r.posicao) => `<div class="rk-head"><h3>${titulo}</h3><button class="primary" data-rk="${edit}">Editar</button></div>` +
     (itens.length ? itens.map(r => `<div class="row"><span class="n">${rotulo(r)}</span><div class="t">${esc(nome(r.livro_id))}</div></div>`).join('') : '<p class="muted">Ainda não preenchido.</p>');
   const atual = new Date().getFullYear();
-  const anos = [...new Set([...st.rank.filter(r => r.tipo === 'top10_ano').map(r => r.ano)])].sort().reverse();
-  host.insertAdjacentHTML('beforeend', bloco('Top 10 livros da vida', rk('top10_vida'), 'vida')
-    + anos.map(a => bloco(`Top 10 de ${a}`, rk('top10_ano', a), 'ano:' + a)).join('')
-    + `<p><button data-rk="novo-ano">+ Top 10 de outro ano</button></p>`
-    + bloco('Melhor leitura de cada ano', rk('melhor_ano').sort((a, b) => a.ano - b.ano), 'melhor', r => r.ano));
+  const anos = [...new Set([atual, ...st.anosExtra, ...st.rank.filter(r => r.tipo === 'top10_ano').map(r => r.ano)])].sort().reverse();
+  if (!anos.includes(st.rkAno)) st.rkAno = anos.find(a => rk('top10_ano', a).length) ?? anos[0];
+  const nav2 = [['vida', 'Top 10 da vida'], ['ano', 'Top 10 por ano'], ['melhor', 'Melhor leitura do ano']];
+  let html = `<nav class="sub sub2">${nav2.map(([k, n]) => `<button data-rk2="${k}" class="${st.rk === k ? 'on' : ''}">${n}</button>`).join('')}</nav>`;
+  if (st.rk === 'ano') html += `<nav class="sub sub2 sub3">${anos.map(a => `<button data-rkano="${a}" class="${st.rkAno === a ? 'on' : ''}">${a}</button>`).join('')}<button data-rk="novo-ano">+ outro ano</button></nav>`;
+  html += st.rk === 'vida' ? bloco('Top 10 livros da vida', rk('top10_vida'), 'vida')
+    : st.rk === 'ano' ? bloco(`Top 10 de ${st.rkAno}`, rk('top10_ano', st.rkAno), 'ano:' + st.rkAno)
+    : bloco('Melhor leitura de cada ano', rk('melhor_ano').sort((a, b) => a.ano - b.ano), 'melhor', r => r.ano);
+  host.insertAdjacentHTML('beforeend', html);
+  host.querySelectorAll('[data-rk2]').forEach(b => (b.onclick = () => { st.rk = b.dataset.rk2; render(); }));
+  host.querySelectorAll('[data-rkano]').forEach(b => (b.onclick = () => { st.rkAno = Number(b.dataset.rkano); render(); }));
 
   const editor = (titulo, slots, onSave) => {
     dlg.innerHTML = `<form method="dialog"><h3 style="margin-top:0">${esc(titulo)}</h3>
@@ -316,6 +323,8 @@ function viewRanking(host) {
     else if (k === 'novo-ano' || k.startsWith('ano:')) {
       const ano = k === 'novo-ano' ? Number(prompt('Ano do Top 10:', atual - 1)) : Number(k.slice(4));
       if (!ano) return;
+      if (!anos.includes(ano)) st.anosExtra.push(ano);
+      st.rk = 'ano'; st.rkAno = ano;
       editor(`Top 10 de ${ano}`, pos10('top10_ano', ano), t => guard(salvar('top10_ano', ano, t)));
     } else {
       const primeiro = Math.min(2021, ...rk('melhor_ano').map(r => r.ano));
