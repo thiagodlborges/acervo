@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Acervo</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
 :root{--bg:#f6f5f2;--card:#fff;--ink:#1c1b19;--mute:#6f6c66;--line:#e4e1da;--acc:#2f5d50;--acc2:#e8f0ed;--warn:#b4531f}
 @media (prefers-color-scheme:dark){:root{--bg:#161614;--card:#1f1f1c;--ink:#ecebe6;--mute:#9c9990;--line:#33322d;--acc:#7fc0ad;--acc2:#233530;--warn:#e0894f}}
@@ -46,11 +45,17 @@ h3{margin:18px 0 8px;font-size:15px}
 <div id="app"></div>
 <dialog id="dlg"></dialog>
 <script>
-// ---- Config (chaves publicáveis; o acesso é protegido por RLS) ----
-const SUPABASE_URL = 'https://gdywqnmuyxmsbpwrhfub.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_GaftvjE6jBUPnDSHmKNyjQ_iQN-8U2D';
-// Schema próprio `acervo` — precisa estar em "Exposed schemas" (Settings > API).
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { db: { schema: 'acervo' } });
+// ---- Acesso: mesmo modelo das finanças (senha única + token de sessão) ----
+const FN = 'https://gdywqnmuyxmsbpwrhfub.supabase.co/functions/v1/';
+const TOKEN_KEY = 'fc_token'; // mesma sessão do app de finanças
+const token = () => localStorage.getItem(TOKEN_KEY) || '';
+async function api(action, payload = {}) {
+  const r = await fetch(FN + 'acervo-api', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-app-token': token() }, body: JSON.stringify({ action, ...payload }) });
+  const d = await r.json().catch(() => ({ ok: false, error: 'resposta inválida' }));
+  if (r.status === 401) { localStorage.removeItem(TOKEN_KEY); loginView('Sessão expirada.'); throw new Error('Sessão expirada'); }
+  if (!d.ok) throw new Error(d.error || 'erro');
+  return d;
+}
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -66,62 +71,45 @@ const STATUS_LABEL = { assistindo:'Assistindo', para_assistir:'Para assistir', e
 
 // ---------- Auth ----------
 async function boot() {
-  const { data: { session } } = await sb.auth.getSession();
-  session ? await load() : loginView();
+  if (!token()) return loginView();
+  try {
+    const r = await fetch(FN + 'app-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token() }) });
+    (await r.json()).ok ? await load() : loginView();
+  } catch { loginView('Sem conexão.'); }
 }
 function loginView(msg = '') {
   app.innerHTML = `<div class="login"><h1>Acervo</h1><p class="muted">Séries, filmes e livros.</p>
-    <input id="em" type="email" placeholder="e-mail" autocomplete="username">
     <input id="pw" type="password" placeholder="senha" autocomplete="current-password">
     <div class="err" id="err">${esc(msg)}</div>
-    <button class="primary" id="in" style="width:100%">Entrar</button>
-    <p style="text-align:center"><button class="link" id="up">Criar conta</button></p></div>`;
-  const go = async signup => {
-    const email = $('#em').value.trim(), password = $('#pw').value;
-    const { error } = signup ? await sb.auth.signUp({ email, password }) : await sb.auth.signInWithPassword({ email, password });
-    if (error) return ($('#err').textContent = error.message);
-    if (signup) return ($('#err').textContent = 'Conta criada. Confirme o e-mail (se exigido) e entre.');
-    await load();
+    <button class="primary" id="in" style="width:100%">Entrar</button></div>`;
+  const go = async () => {
+    try {
+      const r = await fetch(FN + 'app-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: $('#pw').value }) });
+      const d = await r.json();
+      if (!d.ok) return ($('#err').textContent = 'Senha incorreta.');
+      localStorage.setItem(TOKEN_KEY, d.token);
+      await load();
+    } catch { $('#err').textContent = 'Sem conexão.'; }
   };
-  $('#in').onclick = () => go(false);
-  $('#up').onclick = () => go(true);
-  $('#pw').onkeydown = e => e.key === 'Enter' && go(false);
+  $('#in').onclick = go;
+  $('#pw').onkeydown = e => e.key === 'Enter' && go();
+  $('#pw').focus();
 }
 
 // ---------- Dados ----------
-async function fetchAll(table, order) {
-  let all = [], from = 0;
-  for (;;) {
-    let q = sb.from(table).select('*').range(from, from + 999);
-    order.forEach(o => (q = q.order(o, { nullsFirst: false })));
-    const { data, error } = await q;
-    if (error) throw error;
-    all = all.concat(data);
-    if (data.length < 1000) return all;
-    from += 1000;
-  }
-}
 async function load() {
   try {
-    // Primeiro login do dono: assume os dados importados da planilha (idempotente).
-    await sb.rpc('reivindicar_dados');
-    const [t, l, r, e] = await Promise.all([
-      fetchAll('titulos', ['ranking', 'titulo']),
-      fetchAll('livros', ['posicao_fila', 'titulo']),
-      fetchAll('livros_ranking', ['posicao']),
-      sb.from('leitura_estado').select('*').maybeSingle()
-    ]);
-    Object.assign(st, { titulos: t, livros: l, rank: r, estado: e.data });
+    const d = await api('load');
+    Object.assign(st, { titulos: d.titulos, livros: d.livros, rank: d.ranking, estado: d.estado });
     render();
   } catch (err) {
-    app.innerHTML = `<div class="login"><h3>Erro ao carregar</h3><p class="err">${esc(err.message)}</p>
-      <p class="muted">Se a mensagem citar o schema <code>acervo</code>, adicione-o em Settings → API → Exposed schemas no Supabase.</p>
-      <button id="out">Sair</button></div>`;
+    if (err.message === 'Sessão expirada') return;
+    app.innerHTML = `<div class="login"><h3>Erro ao carregar</h3><p class="err">${esc(err.message)}</p><button id="out">Sair</button></div>`;
     $('#out').onclick = logout;
   }
 }
-async function logout() { await sb.auth.signOut(); loginView(); }
-const fail = e => e && alert(e.message);
+function logout() { localStorage.removeItem(TOKEN_KEY); loginView(); }
+const run = async (action, payload) => { try { await api(action, payload); } catch (e) { if (e.message !== 'Sessão expirada') alert(e.message); } load(); };
 
 // ---------- Views ----------
 function render() {
@@ -185,14 +173,13 @@ function editTitulo(t) {
     <span style="flex:1"></span>${isNew ? '' : '<button value="del" formnovalidate style="color:var(--warn)">Excluir</button>'}</div></form>`;
   dlg.onclose = async () => {
     const v = dlg.returnValue; dlg.onclose = null;
-    if (v === 'del' && confirm('Excluir?')) { fail((await sb.from('titulos').delete().eq('id', t.id)).error); return load(); }
+    if (v === 'del' && confirm('Excluir?')) return run('delete_titulo', { id: t.id });
     if (v !== 'ok') return;
     const num = id => { const x = $(id); return x && x.value !== '' ? Number(x.value) : null; };
     const row = { tipo: base.tipo, titulo: $('#f-titulo').value.trim(), status: $('#f-status').value, ranking: num('#f-ranking'),
       streaming: $('#f-streaming').value.trim() || null, nota: num('#f-nota'), observacao: $('#f-obs').value.trim() || null,
       temporadas_assistidas: serie ? num('#f-temps') : null, proxima_temporada: serie ? ($('#f-prox').value.trim() || null) : null, ano: serie ? null : num('#f-ano') };
-    const { error } = isNew ? await sb.from('titulos').insert(row) : await sb.from('titulos').update(row).eq('id', t.id);
-    fail(error); load();
+    run('save_titulo', { id: t?.id, row });
   };
   dlg.showModal();
 }
@@ -229,10 +216,10 @@ function viewLivros(host) {
     }).join('') : '<p class="muted">Nada por aqui.</p>') + (items.length > shown.length ? `<p class="muted">Mostrando ${shown.length} de ${items.length}. Use a busca.</p>` : '');
     const L = id => st.livros.find(l => l.id === id);
     $('#list').querySelectorAll('[data-e]').forEach(b => (b.onclick = () => editLivro(L(b.dataset.e))));
-    $('#list').querySelectorAll('[data-go]').forEach(b => (b.onclick = async () => { fail((await sb.rpc('iniciar_leitura', { p_livro: b.dataset.go })).error); load(); }));
-    $('#list').querySelectorAll('[data-fin]').forEach(b => (b.onclick = async () => {
+    $('#list').querySelectorAll('[data-go]').forEach(b => (b.onclick = () => run('iniciar_leitura', { id: b.dataset.go })));
+    $('#list').querySelectorAll('[data-fin]').forEach(b => (b.onclick = () => {
       const ano = prompt('Ano de leitura:', new Date().getFullYear()); if (!ano) return;
-      fail((await sb.from('livros').update({ status: 'lido', ano_leitura: Number(ano) }).eq('id', b.dataset.fin)).error); load();
+      run('concluir_leitura', { id: b.dataset.fin, ano });
     }));
   };
   drawList();
@@ -252,19 +239,13 @@ function editLivro(l) {
     <span style="flex:1"></span>${isNew ? '' : '<button value="del" formnovalidate style="color:var(--warn)">Excluir</button>'}</div></form>`;
   dlg.onclose = async () => {
     const v = dlg.returnValue; dlg.onclose = null;
-    if (v === 'del' && confirm('Excluir?')) {
-      fail((await sb.from('livros').delete().eq('id', l.id)).error);
-      return load();
-    }
+    if (v === 'del' && confirm('Excluir?')) return run('delete_livro', { id: l.id });
     if (v !== 'ok') return;
     const num = id => ($(id).value !== '' ? Number($(id).value) : null);
     const status = $('#f-status').value;
     const row = { titulo: $('#f-titulo').value.trim(), autor: $('#f-autor').value.trim() || null, categoria: $('#f-cat').value.trim() || null,
       status, ano_leitura: num('#f-ano'), nota: num('#f-nota'), comprado: $('#f-comp').value === '1', observacao: $('#f-obs').value.trim() || null };
-    if (isNew && status === 'para_ler') row.posicao_fila = Math.max(0, ...st.livros.map(x => x.posicao_fila ?? 0)) + 1;
-    if (!isNew && base.status === 'para_ler' && status !== 'para_ler') row.posicao_fila = null;
-    const { error } = isNew ? await sb.from('livros').insert(row) : await sb.from('livros').update(row).eq('id', l.id);
-    fail(error); load();
+    run('save_livro', { id: l?.id, row });
   };
   dlg.showModal();
 }
