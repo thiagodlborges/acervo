@@ -23,6 +23,7 @@ input,select,textarea{background:var(--card);border:1px solid var(--line);border
 .bar{display:flex;gap:8px;margin-bottom:12px}
 .bar input{flex:1}.bar button{white-space:nowrap}
 .row{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:6px}
+.cap{width:36px;height:52px;object-fit:cover;border-radius:4px;background:var(--acc2);flex:none;display:flex;align-items:center;justify-content:center;color:var(--mute);font-size:15px}
 .row .n{width:34px;color:var(--mute);text-align:right;font-variant-numeric:tabular-nums}
 .row .t{flex:1;min-width:0}
 .row .t small{display:block;color:var(--mute)}
@@ -71,6 +72,7 @@ async function api(action, payload = {}) {
 }
 
 const $ = (s, r = document) => r.querySelector(s);
+const cap = x => x.imagem_url ? `<img class="cap" loading="lazy" referrerpolicy="no-referrer" alt="" src="${esc(x.imagem_url)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'cap',textContent:this.dataset.l}))" data-l="${esc((x.titulo || '?')[0].toUpperCase())}">` : `<span class="cap">${esc((x.titulo || '?')[0].toUpperCase())}</span>`;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const app = $('#app'), dlg = $('#dlg');
 const st = { tab: 'series', sub: 'assistindo', q: '', titulos: [], livros: [], rank: [], estado: null, lano: 'todos', soNovas: false, rk: 'vida', rkAno: null, anosExtra: [] };
@@ -172,7 +174,7 @@ function viewTitulos(host) {
       const sub = [t.temporadas_assistidas != null && `${t.temporadas_assistidas} temp.`, t.proxima_temporada && `próx.: ${t.proxima_temporada}`, t.streaming, t.ano].filter(Boolean).join(' · ');
       const nova = emAndamento && t.tem_nova_temporada;
       const acoes = emAndamento ? `<button class="flag ${nova ? 'on' : ''}" data-flag="${t.id}" title="Marcar/desmarcar temporada nova disponível">${nova ? 'Nova temp.' : 'Marcar nova'}</button>${nova ? `<button class="primary" data-vi="${t.id}" title="Soma 1 às temporadas assistidas e remove a marca">Assisti</button>` : ''}` : '';
-      return `<div class="row ${nova ? 'novo' : ''}"><span class="n">${t.ranking ?? ''}</span><div class="t">${esc(t.titulo)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
+      return `<div class="row ${nova ? 'novo' : ''}"><span class="n">${t.ranking ?? ''}</span>${cap(t)}<div class="t">${esc(t.titulo)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
         ${t.nota != null ? `<span class="pill">★ ${t.nota}</span>` : ''}${acoes}
         <span class="actions"><button class="link" data-e="${t.id}">editar</button></span></div>`;
     }).join('') : '<p class="muted">Nada por aqui.</p>';
@@ -199,6 +201,7 @@ function editTitulo(t) {
     ${serie ? `<div class="grid2"><div><label>Temporadas assistidas</label><input id="f-temps" type="number" value="${base.temporadas_assistidas ?? ''}"></div>
     <div><label>Próxima temporada</label><input id="f-prox" placeholder="2027, 2026-09 ou 2026-11-11" value="${esc(base.proxima_temporada)}"></div></div>
     <label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input id="f-nova" type="checkbox" style="width:auto" ${base.tem_nova_temporada ? 'checked' : ''}> <span class="dot"></span> Temporada nova disponível para assistir</label>` :`<label>Ano</label><input id="f-ano" type="number" value="${base.ano ?? ''}">`}
+    <label>Imagem (endereço da capa/pôster)</label><input id="f-img" placeholder="https://…" value="${esc(base.imagem_url)}">
     <label>Observação</label><textarea id="f-obs" rows="2">${esc(base.observacao)}</textarea>
     <div style="display:flex;gap:8px;margin-top:16px"><button class="primary" value="ok">Salvar</button><button value="x" formnovalidate>Cancelar</button>
     <span style="flex:1"></span>${isNew ? '' : '<button value="del" formnovalidate style="color:var(--warn)">Excluir</button>'}</div></form>`;
@@ -210,7 +213,7 @@ function editTitulo(t) {
     const row = { tipo: base.tipo, titulo: $('#f-titulo').value.trim(), status: $('#f-status').value, ranking: num('#f-ranking'),
       streaming: $('#f-streaming').value.trim() || null, nota: num('#f-nota'), observacao: $('#f-obs').value.trim() || null,
       temporadas_assistidas: serie ? num('#f-temps') : null, proxima_temporada: serie ? ($('#f-prox').value.trim() || null) : null, ano: serie ? null : num('#f-ano'),
-      tem_nova_temporada: serie ? $('#f-nova').checked : false };
+      tem_nova_temporada: serie ? $('#f-nova').checked : false, imagem_url: $('#f-img').value.trim() || null };
     run('save_titulo', { id: t?.id, row });
   };
   dlg.showModal();
@@ -248,7 +251,7 @@ function viewLivros(host) {
       const act = l.status === 'para_ler' ? `<button data-go="${l.id}" ${elegivel(l) ? '' : 'disabled'} class="${elegivel(l) ? 'primary' : ''}">Começar</button>`
         : l.status === 'lendo' ? `<button data-fin="${l.id}" class="primary">Concluir</button>` : '';
       const b = l.status === 'para_ler' ? banda(l.posicao_fila) : 0;
-      return `<div class="row" ${b ? `data-b="${b}"` : ''}><span class="n">${l.posicao_fila ?? ''}</span><div class="t">${esc(l.titulo)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
+      return `<div class="row" ${b ? `data-b="${b}"` : ''}><span class="n">${l.posicao_fila ?? ''}</span>${cap(l)}<div class="t">${esc(l.titulo)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
         ${l.ano_leitura ? `<span class="pill">${l.ano_leitura}</span>` : ''}${act}<span class="actions"><button class="link" data-e="${l.id}">editar</button></span></div>`;
     }).join('') : '<p class="muted">Nada por aqui.</p>') + (items.length > shown.length ? `<p class="muted">Mostrando ${shown.length} de ${items.length}. Use a busca.</p>` : '');
     const L = id => st.livros.find(l => l.id === id);
@@ -270,6 +273,7 @@ function editLivro(l) {
     <div><label>Ano de leitura</label><input id="f-ano" type="number" value="${base.ano_leitura ?? ''}"></div></div>
     <div class="grid2"><div><label>Nota (0–10)</label><input id="f-nota" type="number" step="0.1" min="0" max="10" value="${base.nota ?? ''}"></div>
     <div><label>Comprado</label><select id="f-comp"><option value="0">Não</option><option value="1" ${base.comprado ? 'selected' : ''}>Sim</option></select></div></div>
+    <label>Imagem (endereço da capa)</label><input id="f-img" placeholder="https://…" value="${esc(base.imagem_url)}">
     <label>Observação</label><textarea id="f-obs" rows="2">${esc(base.observacao)}</textarea>
     <p class="muted" style="font-size:12px">Novos livros entram no fim da fila. Para mudar a posição use o SQL ou a regra de escolha.</p>
     <div style="display:flex;gap:8px;margin-top:8px"><button class="primary" value="ok">Salvar</button><button value="x" formnovalidate>Cancelar</button>
@@ -281,7 +285,7 @@ function editLivro(l) {
     const num = id => ($(id).value !== '' ? Number($(id).value) : null);
     const status = $('#f-status').value;
     const row = { titulo: $('#f-titulo').value.trim(), autor: $('#f-autor').value.trim() || null, categoria: $('#f-cat').value.trim() || null,
-      status, ano_leitura: num('#f-ano'), nota: num('#f-nota'), comprado: $('#f-comp').value === '1', observacao: $('#f-obs').value.trim() || null };
+      status, ano_leitura: num('#f-ano'), nota: num('#f-nota'), comprado: $('#f-comp').value === '1', imagem_url: $('#f-img').value.trim() || null, observacao: $('#f-obs').value.trim() || null };
     run('save_livro', { id: l?.id, row });
   };
   dlg.showModal();
