@@ -26,6 +26,10 @@ input,select,textarea{background:var(--card);border:1px solid var(--line);border
 .row .n{width:34px;color:var(--mute);text-align:right;font-variant-numeric:tabular-nums}
 .row .t{flex:1;min-width:0}
 .row .t small{display:block;color:var(--mute)}
+.row.novo{border-left:4px solid #f90}
+.dot{width:10px;height:10px;border-radius:50%;background:#f90;flex:none}
+.pill.novo{background:#f90;color:#1c1b19;font-weight:600}
+button.flag.on{background:#f90;border-color:#f90;color:#1c1b19}
 .pill{font-size:12px;background:var(--acc2);color:var(--acc);border-radius:99px;padding:1px 8px;white-space:nowrap}
 .panel{background:var(--acc2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px}
 .panel b{color:var(--acc)}
@@ -60,7 +64,7 @@ async function api(action, payload = {}) {
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const app = $('#app'), dlg = $('#dlg');
-const st = { tab: 'series', sub: 'assistindo', q: '', titulos: [], livros: [], rank: [], estado: null, lano: 'todos' };
+const st = { tab: 'series', sub: 'assistindo', q: '', titulos: [], livros: [], rank: [], estado: null, lano: 'todos', soNovas: false };
 
 const SUBS = {
   series: [['assistindo','Assistindo'],['para_assistir','Para assistir'],['encerrada','Encerradas'],['miniserie','Minisséries']],
@@ -139,17 +143,34 @@ function titulosAtuais() {
     : sub === 'miniserie' ? t.tipo === 'miniserie' : t.tipo === 'serie' && t.status === sub);
 }
 function viewTitulos(host) {
+  const emAndamento = st.tab === 'series' && st.sub === 'assistindo';
+  if (emAndamento) {
+    const n = titulosAtuais().filter(t => t.tem_nova_temporada).length;
+    host.insertAdjacentHTML('beforeend', `<div class="panel" style="display:flex;align-items:center;gap:10px"><span class="dot"></span>
+      <span style="flex:1"><b>${n}</b> ${n === 1 ? 'série com temporada nova' : 'séries com temporada nova'} para assistir</span>
+      <button class="flag ${st.soNovas ? 'on' : ''}" id="so-novas">${st.soNovas ? 'Mostrar todas' : 'Só as novas'}</button></div>`);
+    $('#so-novas').onclick = () => { st.soNovas = !st.soNovas; render(); };
+  }
   searchBar(host, 'Adicionar', () => editTitulo());
   drawList = () => {
     const q = st.q.toLowerCase();
-    const items = titulosAtuais().filter(t => t.titulo.toLowerCase().includes(q));
+    let items = titulosAtuais().filter(t => t.titulo.toLowerCase().includes(q));
+    if (emAndamento) {
+      if (st.soNovas) items = items.filter(t => t.tem_nova_temporada);
+      items = [...items].sort((a, b) => Number(b.tem_nova_temporada) - Number(a.tem_nova_temporada)); // novas primeiro
+    }
     $('#list').innerHTML = items.length ? items.map(t => {
       const sub = [t.temporadas_assistidas != null && `${t.temporadas_assistidas} temp.`, t.proxima_temporada && `próx.: ${t.proxima_temporada}`, t.streaming, t.ano].filter(Boolean).join(' · ');
-      return `<div class="row"><span class="n">${t.ranking ?? ''}</span><div class="t">${esc(t.titulo)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
-        ${t.nota != null ? `<span class="pill">★ ${t.nota}</span>` : ''}
+      const nova = emAndamento && t.tem_nova_temporada;
+      const acoes = emAndamento ? `<button class="flag ${nova ? 'on' : ''}" data-flag="${t.id}" title="Marcar/desmarcar temporada nova disponível">${nova ? 'Nova temp.' : 'Marcar nova'}</button>${nova ? `<button class="primary" data-vi="${t.id}" title="Soma 1 às temporadas assistidas e remove a marca">Assisti</button>` : ''}` : '';
+      return `<div class="row ${nova ? 'novo' : ''}"><span class="n">${t.ranking ?? ''}</span><div class="t">${esc(t.titulo)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
+        ${t.nota != null ? `<span class="pill">★ ${t.nota}</span>` : ''}${acoes}
         <span class="actions"><button class="link" data-e="${t.id}">editar</button></span></div>`;
     }).join('') : '<p class="muted">Nada por aqui.</p>';
-    $('#list').querySelectorAll('[data-e]').forEach(b => (b.onclick = () => editTitulo(st.titulos.find(t => t.id === b.dataset.e))));
+    const T = id => st.titulos.find(t => t.id === id);
+    $('#list').querySelectorAll('[data-e]').forEach(b => (b.onclick = () => editTitulo(T(b.dataset.e))));
+    $('#list').querySelectorAll('[data-flag]').forEach(b => (b.onclick = () => run('save_titulo', { id: b.dataset.flag, row: { tem_nova_temporada: !T(b.dataset.flag).tem_nova_temporada } })));
+    $('#list').querySelectorAll('[data-vi]').forEach(b => (b.onclick = () => run('save_titulo', { id: b.dataset.vi, row: { temporadas_assistidas: (T(b.dataset.vi).temporadas_assistidas ?? 0) + 1, tem_nova_temporada: false } })));
   };
   drawList();
 }
@@ -167,7 +188,8 @@ function editTitulo(t) {
     <div class="grid2"><div><label>Streaming</label><input id="f-streaming" value="${esc(base.streaming)}"></div>
     <div><label>Nota (0–10)</label><input id="f-nota" type="number" step="0.1" min="0" max="10" value="${base.nota ?? ''}"></div></div>
     ${serie ? `<div class="grid2"><div><label>Temporadas assistidas</label><input id="f-temps" type="number" value="${base.temporadas_assistidas ?? ''}"></div>
-    <div><label>Próxima temporada</label><input id="f-prox" placeholder="2027, 2026-09 ou 2026-11-11" value="${esc(base.proxima_temporada)}"></div></div>` : `<label>Ano</label><input id="f-ano" type="number" value="${base.ano ?? ''}">`}
+    <div><label>Próxima temporada</label><input id="f-prox" placeholder="2027, 2026-09 ou 2026-11-11" value="${esc(base.proxima_temporada)}"></div></div>
+    <label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input id="f-nova" type="checkbox" style="width:auto" ${base.tem_nova_temporada ? 'checked' : ''}> <span class="dot"></span> Temporada nova disponível para assistir</label>` :`<label>Ano</label><input id="f-ano" type="number" value="${base.ano ?? ''}">`}
     <label>Observação</label><textarea id="f-obs" rows="2">${esc(base.observacao)}</textarea>
     <div style="display:flex;gap:8px;margin-top:16px"><button class="primary" value="ok">Salvar</button><button value="x" formnovalidate>Cancelar</button>
     <span style="flex:1"></span>${isNew ? '' : '<button value="del" formnovalidate style="color:var(--warn)">Excluir</button>'}</div></form>`;
@@ -178,7 +200,8 @@ function editTitulo(t) {
     const num = id => { const x = $(id); return x && x.value !== '' ? Number(x.value) : null; };
     const row = { tipo: base.tipo, titulo: $('#f-titulo').value.trim(), status: $('#f-status').value, ranking: num('#f-ranking'),
       streaming: $('#f-streaming').value.trim() || null, nota: num('#f-nota'), observacao: $('#f-obs').value.trim() || null,
-      temporadas_assistidas: serie ? num('#f-temps') : null, proxima_temporada: serie ? ($('#f-prox').value.trim() || null) : null, ano: serie ? null : num('#f-ano') };
+      temporadas_assistidas: serie ? num('#f-temps') : null, proxima_temporada: serie ? ($('#f-prox').value.trim() || null) : null, ano: serie ? null : num('#f-ano'),
+      tem_nova_temporada: serie ? $('#f-nova').checked : false };
     run('save_titulo', { id: t?.id, row });
   };
   dlg.showModal();
