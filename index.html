@@ -27,6 +27,14 @@ input,select,textarea{background:var(--card);border:1px solid var(--line);border
 .row .t{flex:1;min-width:0}
 .row .t small{display:block;color:var(--mute)}
 .row.novo{border-left:4px solid #f90}
+/* faixas da fila "para ler" (mesmas cores da planilha, blocos de posição) */
+.row[data-b]{border-left:6px solid var(--bc)}
+.row[data-b="1"],.sw[data-b="1"]{--bc:#8db4e2}.row[data-b="2"],.sw[data-b="2"]{--bc:#a6a6a6}.row[data-b="3"],.sw[data-b="3"]{--bc:#f79646}
+.row[data-b="4"],.sw[data-b="4"]{--bc:#b1a0c7}.row[data-b="5"],.sw[data-b="5"]{--bc:#9bbb59}
+.sw{display:inline-flex;align-items:center;gap:5px;margin-right:12px;white-space:nowrap}
+.sw::before{content:"";width:12px;height:12px;border-radius:3px;background:var(--bc,transparent);border:1px solid var(--line)}
+.slot{display:flex;gap:8px;align-items:center;margin-bottom:6px}.slot span{width:70px;color:var(--mute);font-size:13px;flex:none}
+.rk-head{display:flex;align-items:center;gap:10px}.rk-head h3{flex:1}
 .dot{width:10px;height:10px;border-radius:50%;background:#f90;flex:none}
 .pill.novo{background:#f90;color:#1c1b19;font-weight:600}
 button.flag.on{background:#f90;border-color:#f90;color:#1c1b19}
@@ -209,6 +217,9 @@ function editTitulo(t) {
 
 // Livros
 const faixa = i => (i === 0 ? [2, 100] : [i * 100 + 1, (i + 1) * 100]);
+// Cor da posição na fila (como na planilha): 1–20 sem cor; 21–100 azul; 101–200 cinza; 201–300 laranja; 301–400 roxo; 401+ verde.
+const banda = p => (!p || p <= 20 ? 0 : p <= 100 ? 1 : p <= 200 ? 2 : p <= 300 ? 3 : p <= 400 ? 4 : 5);
+const LEGENDA = [['','1–20'],['1','21–100'],['2','101–200'],['3','201–300'],['4','301–400'],['5','401+']];
 function viewLivros(host) {
   const fila = st.livros.filter(l => l.status === 'para_ler').sort((a, b) => a.posicao_fila - b.posicao_fila);
   if (st.sub === 'ranking') return viewRanking(host);
@@ -218,6 +229,7 @@ function viewLivros(host) {
   if (st.sub === 'fila') host.insertAdjacentHTML('beforeend', `<div class="panel">${est.proximo_tipo === 'ordem'
     ? `Vez do <b>primeiro da fila</b>: ${esc(fila[0]?.titulo ?? '—')}`
     : `Vez de um livro <b>fora de ordem</b>, entre as posições <b>${lo}</b> e <b>${Math.min(hi, max)}</b>. Os demais sobem de número ao escolher.`}</div>`);
+  if (st.sub === 'fila') host.insertAdjacentHTML('beforeend', `<p class="muted" style="font-size:13px;margin:-4px 0 12px">Faixas da fila: ${LEGENDA.map(([b, t]) => `<span class="sw" ${b ? `data-b="${b}"` : ''}>${t}</span>`).join('')}</p>`);
   if (st.sub === 'lido') {
     const anos = [...new Set(st.livros.filter(l => l.status === 'lido').map(l => l.ano_leitura ?? 'antigos'))].sort().reverse();
     host.insertAdjacentHTML('beforeend', `<div class="bar"><select id="ano"><option value="todos">Todos os anos</option>${anos.map(a => `<option ${String(a) === st.lano ? 'selected' : ''}>${a}</option>`).join('')}</select></div>`);
@@ -234,7 +246,8 @@ function viewLivros(host) {
       const sub = [l.autor, l.categoria, l.comprado && 'comprado'].filter(Boolean).join(' · ');
       const act = l.status === 'para_ler' ? `<button data-go="${l.id}" ${elegivel(l) ? '' : 'disabled'} class="${elegivel(l) ? 'primary' : ''}">Começar</button>`
         : l.status === 'lendo' ? `<button data-fin="${l.id}" class="primary">Concluir</button>` : '';
-      return `<div class="row"><span class="n">${l.posicao_fila ?? ''}</span><div class="t">${esc(l.titulo)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
+      const b = l.status === 'para_ler' ? banda(l.posicao_fila) : 0;
+      return `<div class="row" ${b ? `data-b="${b}"` : ''}><span class="n">${l.posicao_fila ?? ''}</span><div class="t">${esc(l.titulo)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
         ${l.ano_leitura ? `<span class="pill">${l.ano_leitura}</span>` : ''}${act}<span class="actions"><button class="link" data-e="${l.id}">editar</button></span></div>`;
     }).join('') : '<p class="muted">Nada por aqui.</p>') + (items.length > shown.length ? `<p class="muted">Mostrando ${shown.length} de ${items.length}. Use a busca.</p>` : '');
     const L = id => st.livros.find(l => l.id === id);
@@ -274,11 +287,47 @@ function editLivro(l) {
 }
 function viewRanking(host) {
   const nome = id => st.livros.find(l => l.id === id)?.titulo ?? '?';
-  const bloco = (titulo, itens) => `<h3>${titulo}</h3>` + (itens.length ? itens.map(r => `<div class="row"><span class="n">${r.posicao}</span><div class="t">${esc(nome(r.livro_id))}</div></div>`).join('') : '<p class="muted">Ainda não preenchido.</p>');
-  const anos = [...new Set(st.rank.filter(r => r.tipo === 'top10_ano').map(r => r.ano))].sort().reverse();
-  host.insertAdjacentHTML('beforeend', bloco('Top 10 livros da vida', st.rank.filter(r => r.tipo === 'top10_vida').sort((a, b) => a.posicao - b.posicao))
-    + anos.map(a => bloco(`Top 10 de ${a}`, st.rank.filter(r => r.tipo === 'top10_ano' && r.ano === a).sort((x, y) => x.posicao - y.posicao))).join('')
-    + bloco('Melhor leitura de cada ano', st.rank.filter(r => r.tipo === 'melhor_ano').sort((a, b) => a.ano - b.ano).map(r => ({ posicao: r.ano, livro_id: r.livro_id }))));
+  const rk = (tipo, ano) => st.rank.filter(r => r.tipo === tipo && (ano == null || r.ano === ano)).sort((a, b) => a.posicao - b.posicao);
+  const lidos = ano => st.livros.filter(l => l.status === 'lido' && (ano == null || l.ano_leitura === ano)).map(l => l.titulo);
+  const bloco = (titulo, itens, edit, rotulo = r => r.posicao) => `<div class="rk-head"><h3>${titulo}</h3><button data-rk="${edit}">Editar</button></div>` +
+    (itens.length ? itens.map(r => `<div class="row"><span class="n">${rotulo(r)}</span><div class="t">${esc(nome(r.livro_id))}</div></div>`).join('') : '<p class="muted">Ainda não preenchido.</p>');
+  const atual = new Date().getFullYear();
+  const anos = [...new Set([...st.rank.filter(r => r.tipo === 'top10_ano').map(r => r.ano)])].sort().reverse();
+  host.insertAdjacentHTML('beforeend', bloco('Top 10 livros da vida', rk('top10_vida'), 'vida')
+    + anos.map(a => bloco(`Top 10 de ${a}`, rk('top10_ano', a), 'ano:' + a)).join('')
+    + `<p><button data-rk="novo-ano">+ Top 10 de outro ano</button></p>`
+    + bloco('Melhor leitura de cada ano', rk('melhor_ano').sort((a, b) => a.ano - b.ano), 'melhor', r => r.ano));
+
+  const editor = (titulo, slots, onSave) => {
+    dlg.innerHTML = `<form method="dialog"><h3 style="margin-top:0">${esc(titulo)}</h3>
+      ${slots.map((s, i) => `<div class="slot"><span>${esc(s.label)}</span><input data-i="${i}" list="dl-${i}" value="${esc(s.value)}" placeholder="título do livro"><datalist id="dl-${i}">${s.books.map(b => `<option value="${esc(b)}">`).join('')}</datalist></div>`).join('')}
+      <p class="muted" style="font-size:12px">Digite ou escolha um livro já lido. Se o título não existir, ele é cadastrado como lido. Deixe em branco para limpar a posição.</p>
+      <div style="display:flex;gap:8px;margin-top:12px"><button class="primary" value="ok">Salvar</button><button value="x" formnovalidate>Cancelar</button></div></form>`;
+    dlg.onclose = () => { dlg.onclose = null; if (dlg.returnValue === 'ok') onSave([...dlg.querySelectorAll('input[data-i]')].map(i => i.value.trim())); };
+    dlg.showModal();
+  };
+  const salvar = (tipo, ano, titulos) => api('save_ranking', { tipo, ano, titulos });
+  const pos10 = (tipo, ano) => Array.from({ length: 10 }, (_, i) => ({ label: `${i + 1}º`, value: rk(tipo, ano).find(r => r.posicao === i + 1) ? nome(rk(tipo, ano).find(r => r.posicao === i + 1).livro_id) : '', books: lidos(ano) }));
+  const guard = p => p.catch(e => e.message !== 'Sessão expirada' && alert(e.message)).then(load);
+
+  host.querySelectorAll('[data-rk]').forEach(b => (b.onclick = () => {
+    const k = b.dataset.rk;
+    if (k === 'vida') editor('Top 10 livros da vida', pos10('top10_vida', null), t => guard(salvar('top10_vida', null, t)));
+    else if (k === 'novo-ano' || k.startsWith('ano:')) {
+      const ano = k === 'novo-ano' ? Number(prompt('Ano do Top 10:', atual - 1)) : Number(k.slice(4));
+      if (!ano) return;
+      editor(`Top 10 de ${ano}`, pos10('top10_ano', ano), t => guard(salvar('top10_ano', ano, t)));
+    } else {
+      const primeiro = Math.min(2021, ...rk('melhor_ano').map(r => r.ano));
+      const anosM = Array.from({ length: atual - primeiro + 1 }, (_, i) => atual - i);
+      const slots = anosM.map(a => { const r = rk('melhor_ano', a)[0]; return { label: String(a), value: r ? nome(r.livro_id) : '', books: lidos(a) }; });
+      editor('Melhor leitura de cada ano', slots, async t => {
+        try { for (let i = 0; i < anosM.length; i++) if (t[i] !== slots[i].value) await salvar('melhor_ano', anosM[i], t[i] ? [t[i]] : []); }
+        catch (e) { if (e.message !== 'Sessão expirada') alert(e.message); }
+        load();
+      });
+    }
+  }));
 }
 
 boot();
