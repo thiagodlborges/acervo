@@ -36,6 +36,10 @@ input,select,textarea{background:var(--card);border:1px solid var(--line);border
 .sw::before{content:"";width:12px;height:12px;border-radius:3px;background:var(--bc,transparent);border:1px solid var(--line)}
 .slot{display:flex;gap:8px;align-items:center;margin-bottom:6px}.slot span{width:70px;color:var(--mute);font-size:13px;flex:none}
 .sub2{margin:-4px 0 12px 14px;padding-left:10px;border-left:2px solid var(--line)}.sub3{margin-left:30px}
+.row.meta{flex-direction:column;align-items:stretch;gap:8px}
+.dias{display:flex;gap:6px}.dia{flex:1;padding:6px 0;text-align:center;font-size:12px;line-height:1.25}
+.dia.on{background:var(--acc);border-color:var(--acc);color:#fff}.dia.hoje{outline:2px solid var(--acc);outline-offset:1px}
+label.pg{display:flex;align-items:center;gap:6px;color:var(--mute);font-size:13px;margin:0}label.pg input{width:76px;padding:5px 8px}
 .rk-head{display:flex;align-items:center;gap:10px}.rk-head h3{flex:1}
 .dot{width:10px;height:10px;border-radius:50%;background:#f90;flex:none}
 .pill.novo{background:#f90;color:#1c1b19;font-weight:600}
@@ -75,12 +79,12 @@ const $ = (s, r = document) => r.querySelector(s);
 const cap = x => x.imagem_url ? `<img class="cap" loading="lazy" referrerpolicy="no-referrer" alt="" src="${esc(x.imagem_url)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'cap',textContent:this.dataset.l}))" data-l="${esc((x.titulo || '?')[0].toUpperCase())}">` : `<span class="cap">${esc((x.titulo || '?')[0].toUpperCase())}</span>`;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const app = $('#app'), dlg = $('#dlg');
-const st = { tab: 'series', sub: 'assistindo', q: '', titulos: [], livros: [], rank: [], estado: null, lano: 'todos', soNovas: false, rk: 'vida', rkAno: null, anosExtra: [] };
+const st = { tab: 'series', sub: 'assistindo', q: '', titulos: [], livros: [], rank: [], estado: null, lano: 'todos', soNovas: false, rk: 'vida', rkAno: null, anosExtra: [], semana: null, metas: [], dias: [] };
 
 const SUBS = {
   series: [['assistindo','Assistindo'],['para_assistir','Para assistir'],['encerrada','Encerradas'],['miniserie','Minisséries']],
   filmes: [['assistido','Assistidos'],['para_assistir','Para assistir']],
-  livros: [['fila','Fila'],['lendo','Lendo'],['lido','Lidos'],['ranking','Rankings']]
+  livros: [['fila','Fila'],['lendo','Lendo'],['lido','Lidos'],['meta','Meta da semana'],['ranking','Rankings']]
 };
 const STATUS_LABEL = { assistindo:'Assistindo', para_assistir:'Para assistir', encerrada:'Encerrada', assistido:'Assistido', para_ler:'Para ler', lendo:'Lendo', lido:'Lido' };
 
@@ -115,7 +119,7 @@ function loginView(msg = '') {
 async function load() {
   try {
     const d = await api('load');
-    Object.assign(st, { titulos: d.titulos, livros: d.livros, rank: d.ranking, estado: d.estado });
+    Object.assign(st, { titulos: d.titulos, livros: d.livros, rank: d.ranking, estado: d.estado, metas: d.metas, dias: d.dias });
     render();
   } catch (err) {
     if (err.message === 'Sessão expirada') return;
@@ -227,6 +231,7 @@ const LEGENDA = [['','1–20'],['1','21–100'],['2','101–200'],['3','201–30
 function viewLivros(host) {
   const fila = st.livros.filter(l => l.status === 'para_ler').sort((a, b) => a.posicao_fila - b.posicao_fila);
   if (st.sub === 'ranking') return viewRanking(host);
+  if (st.sub === 'meta') return viewMeta(host);
   const est = st.estado || { proximo_tipo: 'fora', faixa_idx: 0 };
   const [lo, hi] = faixa(est.faixa_idx), max = fila.length;
   const elegivel = l => est.proximo_tipo === 'ordem' ? l.posicao_fila === 1 : l.posicao_fila >= lo && (l.posicao_fila <= hi || max < lo);
@@ -290,6 +295,71 @@ function editLivro(l) {
   };
   dlg.showModal();
 }
+// ---------- Meta de leitura da semana ----------
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const segundaDe = d => { const x = new Date(d); x.setHours(12, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return ymd(x); };
+const somaDias = (s, n) => { const x = new Date(s + 'T12:00:00'); x.setDate(x.getDate() + n); return ymd(x); };
+const DIAS_SEM = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+const ddmm = s => `${s.slice(8)}/${s.slice(5, 7)}`;
+
+function viewMeta(host) {
+  const atual = segundaDe(new Date()), hoje = ymd(new Date());
+  if (!st.semana) st.semana = atual;
+  const metas = st.metas.filter(m => m.semana === st.semana);
+  host.insertAdjacentHTML('beforeend', `<div class="bar" style="align-items:center"><button id="sm-prev" aria-label="Semana anterior">‹</button>
+    <div style="flex:1;text-align:center"><b>${ddmm(st.semana)} – ${ddmm(somaDias(st.semana, 6))}</b>${st.semana === atual ? ' <span class="pill">esta semana</span>' : ''}</div>
+    <button id="sm-next" aria-label="Próxima semana">›</button><button class="primary" id="sm-new">+ Nova meta</button></div><div id="list"></div>`);
+  $('#sm-prev').onclick = () => { st.semana = somaDias(st.semana, -7); render(); };
+  $('#sm-next').onclick = () => { st.semana = somaDias(st.semana, 7); render(); };
+  $('#sm-new').onclick = () => editMeta();
+  $('#list').innerHTML = metas.length ? metas.map(m => {
+    const l = st.livros.find(x => x.id === m.livro_id) || { titulo: '?' };
+    const feitos = new Set(st.dias.filter(d => d.meta_id === m.id).map(d => d.dia));
+    const pct = l.total_paginas ? Math.min(100, Math.round(m.pagina_atual / l.total_paginas * 100)) : null;
+    return `<div class="row meta"><div style="display:flex;gap:10px;align-items:center;width:100%">${cap(l)}<div class="t">${esc(l.titulo)}
+        <small>${m.paginas_por_dia} pág./dia · ${feitos.size}/7 dias · ${m.pagina_atual - m.pagina_inicial} pág. na semana${pct != null ? ` · ${pct}% do livro` : ''}</small></div>
+        <label class="pg">pág. <input type="number" min="0" value="${m.pagina_atual}" data-pg="${m.id}"></label>
+        <button class="link" data-em="${m.id}">editar</button></div>
+      <div class="dias">${DIAS_SEM.map((n, i) => { const d = somaDias(st.semana, i); return `<button class="dia ${feitos.has(d) ? 'on' : ''} ${d === hoje ? 'hoje' : ''}" data-m="${m.id}" data-d="${d}" aria-pressed="${feitos.has(d)}">${n}<br>${d.slice(8)}</button>`; }).join('')}</div>
+      <div style="display:flex;gap:8px"><button class="link" data-prox="${m.id}">Repetir na próxima semana</button></div></div>`;
+  }).join('') : '<p class="muted">Nenhuma meta nesta semana. Use <b>+ Nova meta</b> para cadastrar a página em que você está e quantas páginas quer ler por dia.</p>';
+  const M = id => st.metas.find(m => m.id === id);
+  $('#list').querySelectorAll('[data-d]').forEach(b => (b.onclick = () => run('toggle_dia', { meta_id: b.dataset.m, dia: b.dataset.d, feito: !b.classList.contains('on') })));
+  $('#list').querySelectorAll('[data-pg]').forEach(i => (i.onchange = () => run('set_pagina', { id: i.dataset.pg, pagina: i.value })));
+  $('#list').querySelectorAll('[data-em]').forEach(b => (b.onclick = () => editMeta(M(b.dataset.em))));
+  $('#list').querySelectorAll('[data-prox]').forEach(b => (b.onclick = () => {
+    const m = M(b.dataset.prox);
+    run('save_meta', { livro_id: m.livro_id, semana: somaDias(m.semana, 7), pagina_inicial: m.pagina_atual, paginas_por_dia: m.paginas_por_dia });
+    st.semana = somaDias(m.semana, 7);
+  }));
+}
+function editMeta(m) {
+  const isNew = !m, l = m && st.livros.find(x => x.id === m.livro_id);
+  const lendo = st.livros.filter(x => x.status === 'lendo');
+  dlg.innerHTML = `<form method="dialog"><h3 style="margin-top:0">${isNew ? 'Nova meta da semana' : 'Editar meta'}</h3>
+    ${isNew ? `<label>Livro</label><input id="m-livro" list="dl-lendo" placeholder="título do livro" value="${esc(lendo.length === 1 ? lendo[0].titulo : '')}" required><datalist id="dl-lendo">${lendo.map(x => `<option value="${esc(x.titulo)}">`).join('')}</datalist>` : `<p><b>${esc(l?.titulo)}</b></p>`}
+    <div class="grid2"><div><label>Página em que estou</label><input id="m-ini" type="number" min="0" required value="${m ? m.pagina_inicial : ''}"></div>
+    <div><label>Meta de páginas por dia</label><input id="m-ppd" type="number" min="1" required value="${m ? m.paginas_por_dia : ''}"></div></div>
+    <label>Total de páginas do livro (opcional)</label><input id="m-tot" type="number" min="1" value="${l?.total_paginas ?? ''}">
+    <p class="muted" style="font-size:12px">Semana de ${ddmm(m ? m.semana : st.semana)} a ${ddmm(somaDias(m ? m.semana : st.semana, 6))}. Ao marcar um dia, as páginas da meta são somadas à página atual.</p>
+    <div style="display:flex;gap:8px;margin-top:12px"><button class="primary" value="ok">Salvar</button><button value="x" formnovalidate>Cancelar</button><span style="flex:1"></span>${isNew ? '' : '<button value="del" formnovalidate style="color:var(--warn)">Excluir</button>'}</div></form>`;
+  dlg.onclose = () => {
+    const v = dlg.returnValue; dlg.onclose = null;
+    if (v === 'del' && confirm('Excluir esta meta?')) return run('delete_meta', { id: m.id });
+    if (v !== 'ok') return;
+    let livro_id = m?.livro_id;
+    if (isNew) {
+      const t = $('#m-livro').value.trim().toLowerCase();
+      const achados = st.livros.filter(x => x.titulo.toLowerCase() === t).sort((a, b) => (b.status === 'lendo') - (a.status === 'lendo'));
+      if (!achados.length) return alert('Livro não encontrado. Digite exatamente o título de um livro do acervo.');
+      livro_id = achados[0].id;
+    }
+    const tot = $('#m-tot').value;
+    run('save_meta', { id: m?.id, livro_id, semana: m ? m.semana : st.semana, pagina_inicial: $('#m-ini').value, paginas_por_dia: $('#m-ppd').value, total_paginas: tot || null });
+  };
+  dlg.showModal();
+}
+
 function viewRanking(host) {
   const nome = id => st.livros.find(l => l.id === id)?.titulo ?? '?';
   const rk = (tipo, ano) => st.rank.filter(r => r.tipo === tipo && (ano == null || r.ano === ano)).sort((a, b) => a.posicao - b.posicao);
