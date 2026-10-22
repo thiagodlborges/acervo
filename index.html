@@ -250,7 +250,7 @@ function viewLivros(host) {
     let items = st.sub === 'fila' ? fila : st.livros.filter(l => l.status === st.sub);
     if (st.sub === 'lido') items = items.filter(l => st.lano === 'todos' || String(l.ano_leitura ?? 'antigos') === st.lano).sort((a, b) => (b.ano_leitura ?? 0) - (a.ano_leitura ?? 0));
     items = items.filter(l => (l.titulo + ' ' + (l.autor ?? '')).toLowerCase().includes(q));
-    const shown = items.slice(0, 300);
+    const shown = items; // lista completa (fila até o último livro)
     $('#list').innerHTML = (shown.length ? shown.map(l => {
       const sub = [l.autor, l.categoria, l.comprado && 'comprado'].filter(Boolean).join(' · ');
       const act = l.status === 'para_ler' ? `<button data-go="${l.id}" ${elegivel(l) ? '' : 'disabled'} class="${elegivel(l) ? 'primary' : ''}">Começar</button>`
@@ -258,7 +258,7 @@ function viewLivros(host) {
       const b = l.status === 'para_ler' ? banda(l.posicao_fila) : 0;
       return `<div class="row" ${b ? `data-b="${b}"` : ''}><span class="n">${l.posicao_fila ?? ''}</span>${cap(l)}<div class="t">${esc(l.titulo)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
         ${l.ano_leitura ? `<span class="pill">${l.ano_leitura}</span>` : ''}${act}<span class="actions"><button class="link" data-e="${l.id}">editar</button></span></div>`;
-    }).join('') : '<p class="muted">Nada por aqui.</p>') + (items.length > shown.length ? `<p class="muted">Mostrando ${shown.length} de ${items.length}. Use a busca.</p>` : '');
+    }).join('') : '<p class="muted">Nada por aqui.</p>') + (items.length ? `<p class="muted" style="text-align:center">${items.length} ${items.length === 1 ? 'livro' : 'livros'}${st.sub === 'fila' ? ' na fila' : ''}</p>` : '');
     const L = id => st.livros.find(l => l.id === id);
     $('#list').querySelectorAll('[data-e]').forEach(b => (b.onclick = () => editLivro(L(b.dataset.e))));
     $('#list').querySelectorAll('[data-go]').forEach(b => (b.onclick = () => run('iniciar_leitura', { id: b.dataset.go })));
