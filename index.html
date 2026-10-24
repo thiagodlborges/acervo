@@ -59,7 +59,8 @@ dialog label{display:block;margin:10px 0 3px;font-size:13px;color:var(--mute)}
 h3{margin:18px 0 8px;font-size:15px}
 html{-webkit-text-size-adjust:100%}
 button{touch-action:manipulation}
-@media(max-width:600px){
+</style>
+<style id="mob" media="(max-width:600px)">
   body{font-size:16px}
   header{padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top))}
   main{padding:12px 12px calc(28px + env(safe-area-inset-bottom))}
@@ -92,13 +93,20 @@ button{touch-action:manipulation}
   dialog form div[style*="display:flex"]{flex-wrap:wrap}
   dialog form div[style*="display:flex"] button{flex:1 1 auto}
   .login{margin:8vh auto}
-}
 </style>
+<style></style>
 </head>
 <body>
 <div id="app"></div>
 <dialog id="dlg"></dialog>
 <script>
+// Celular em "site para computador": o layout fica largo e tudo parece pequeno. Ativa o estilo móvel e amplia.
+(() => {
+  const tela = Math.min(screen.width, screen.height), toque = navigator.maxTouchPoints > 0;
+  if (!toque || tela > 600 || innerWidth <= 700) return;
+  document.getElementById('mob').media = 'all';
+  document.documentElement.style.zoom = innerWidth / tela;
+})();
 // ---- Acesso: mesmo modelo das finanças (senha única + token de sessão) ----
 const FN = 'https://gdywqnmuyxmsbpwrhfub.supabase.co/functions/v1/';
 const TOKEN_KEY = 'fc_token'; // mesma sessão do app de finanças
