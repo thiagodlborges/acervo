@@ -379,9 +379,8 @@ function viewMeta(host) {
 }
 function editMeta(m) {
   const isNew = !m, l = m && st.livros.find(x => x.id === m.livro_id);
-  const lendo = st.livros.filter(x => x.status === 'lendo');
   dlg.innerHTML = `<form method="dialog"><h3 style="margin-top:0">${isNew ? 'Nova meta da semana' : 'Editar meta'}</h3>
-    ${isNew ? `<label>Livro</label><input id="m-livro" list="dl-lendo" placeholder="título do livro" value="${esc(lendo.length === 1 ? lendo[0].titulo : '')}" required><datalist id="dl-lendo">${lendo.map(x => `<option value="${esc(x.titulo)}">`).join('')}</datalist>` : `<p><b>${esc(l?.titulo)}</b></p>`}
+    ${isNew ? `<label>Livro</label><select id="m-livro" required>${[['lendo', 'Lendo'], ['para_ler', 'Fila'], ['lido', 'Lidos']].map(([k, n]) => { const xs = st.livros.filter(x => x.status === k); if (k === 'para_ler') xs.sort((p, q) => p.posicao_fila - q.posicao_fila); else xs.sort((p, q) => p.titulo.localeCompare(q.titulo)); return xs.length ? `<optgroup label="${n}">${xs.map(x => `<option value="${x.id}">${esc(x.titulo)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select>` : `<p><b>${esc(l?.titulo)}</b></p>`}
     <div class="grid2"><div><label>Página em que estou</label><input id="m-ini" type="number" min="0" required value="${m ? m.pagina_inicial : ''}"></div>
     <div><label>Meta de páginas por dia</label><input id="m-ppd" type="number" min="1" required value="${m ? m.paginas_por_dia : ''}"></div></div>
     <label>Total de páginas do livro (opcional)</label><input id="m-tot" type="number" min="1" value="${l?.total_paginas ?? ''}">
@@ -393,10 +392,8 @@ function editMeta(m) {
     if (v !== 'ok') return;
     let livro_id = m?.livro_id;
     if (isNew) {
-      const t = $('#m-livro').value.trim().toLowerCase();
-      const achados = st.livros.filter(x => x.titulo.toLowerCase() === t).sort((a, b) => (b.status === 'lendo') - (a.status === 'lendo'));
-      if (!achados.length) return alert('Livro não encontrado. Digite exatamente o título de um livro do acervo.');
-      livro_id = achados[0].id;
+      livro_id = $('#m-livro').value;
+      if (!livro_id) return alert('Selecione um livro.');
     }
     const tot = $('#m-tot').value;
     run('save_meta', { id: m?.id, livro_id, semana: m ? m.semana : st.semana, pagina_inicial: $('#m-ini').value, paginas_por_dia: $('#m-ppd').value, total_paginas: tot || null });
