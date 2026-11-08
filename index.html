@@ -28,6 +28,7 @@ input,select,textarea{background:var(--card);border:1px solid var(--line);border
 .bar input{flex:1}.bar button{white-space:nowrap}
 .row{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:6px}
 .cap{width:36px;height:52px;object-fit:cover;border-radius:4px;background:var(--acc2);flex:none;display:flex;align-items:center;justify-content:center;color:var(--mute);font-size:15px}
+img.cap{cursor:zoom-in}.cap.big{width:64px;height:92px;font-size:22px}.cap.xl{width:80px;height:116px;font-size:26px}
 .row .n{width:34px;color:var(--mute);text-align:right;font-variant-numeric:tabular-nums}
 .row .t{flex:1;min-width:0}
 .row .t small{display:block;color:var(--mute)}
@@ -83,7 +84,7 @@ button{touch-action:manipulation}
   .row>button:disabled{display:none}
   .row .t{flex:1 1 90px}
   .row{gap:6px}
-  .cap{width:32px;height:46px}
+  .cap{width:32px;height:46px}.cap.big{width:56px;height:80px}.cap.xl{width:72px;height:104px}
   .row .n{width:22px}
   .row .actions{margin-left:auto}
   .row.meta>div:first-child{flex-wrap:wrap}
@@ -123,7 +124,17 @@ async function api(action, payload = {}) {
 }
 
 const $ = (s, r = document) => r.querySelector(s);
-const cap = x => x.imagem_url ? `<img class="cap" loading="lazy" referrerpolicy="no-referrer" alt="" src="${esc(x.imagem_url)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'cap',textContent:this.dataset.l}))" data-l="${esc((x.titulo || '?')[0].toUpperCase())}">` : `<span class="cap">${esc((x.titulo || '?')[0].toUpperCase())}</span>`;
+const cap = (x, size = '') => { const c = 'cap' + (size ? ' ' + size : ''), l = esc((x.titulo || '?')[0].toUpperCase());
+  return x.imagem_url ? `<img class="${c}" loading="lazy" referrerpolicy="no-referrer" alt="" src="${esc(x.imagem_url)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'${c}',textContent:this.dataset.l}))" data-l="${l}">` : `<span class="${c}">${l}</span>`; };
+// Toque na capa: amplia. Listas curtas mostram capas maiores.
+const capLista = n => (n <= 12 ? 'big' : '');
+document.addEventListener('click', e => {
+  const i = e.target.closest('img.cap'); if (!i) return;
+  const o = document.createElement('div');
+  o.style.cssText = 'position:fixed;inset:0;background:#000c;display:flex;align-items:center;justify-content:center;z-index:50;cursor:zoom-out';
+  o.innerHTML = `<img referrerpolicy="no-referrer" alt="" src="${esc(i.src)}" style="max-width:92vw;max-height:88vh;border-radius:8px">`;
+  o.onclick = () => o.remove(); document.body.appendChild(o);
+});
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const app = $('#app'), dlg = $('#dlg');
 const st = { tab: 'series', sub: 'assistindo', q: '', titulos: [], livros: [], rank: [], estado: null, lano: 'todos', soNovas: false, rk: 'vida', rkAno: null, anosExtra: [], semana: null, metas: [], dias: [] };
@@ -175,7 +186,49 @@ async function load() {
   }
 }
 function logout() { localStorage.removeItem(TOKEN_KEY); loginView(); }
-const run = async (action, payload) => { try { await api(action, payload); } catch (e) { if (e.message !== 'Sessão expirada') alert(e.message); } load(); };
+// Atualiza a tela na hora (otimista) e grava em segundo plano; só recarrega do servidor quando o resultado depende dele.
+let pend = 0;
+const RELOAD = new Set(['save_livro', 'iniciar_leitura', 'save_meta', 'save_ranking']);
+function otimista(a, p) {
+  const T = id => st.titulos.find(t => t.id === id), L = id => st.livros.find(l => l.id === id), M = id => st.metas.find(m => m.id === id);
+  if (a === 'save_titulo') { if (p.id) Object.assign(T(p.id) || {}, p.row); else st.titulos.push({ id: 'novo' + Date.now(), ...p.row }); }
+  else if (a === 'save_livro') {
+    if (p.id) Object.assign(L(p.id) || {}, p.row);
+    else st.livros.push({ id: 'novo' + Date.now(), posicao_fila: p.row.status === 'para_ler' ? Math.max(0, ...st.livros.map(l => l.posicao_fila || 0)) + 1 : null, ...p.row });
+  } else if (a === 'save_meta') {
+    const l = L(p.livro_id), pi = Number(p.pagina_inicial), ppd = Number(p.paginas_por_dia);
+    const tot = p.total_paginas ? Number(p.total_paginas) : l?.total_paginas;
+    if (p.total_paginas && l) l.total_paginas = Number(p.total_paginas);
+    if (p.ate_fim_livro && !(tot > pi)) return false;
+    const seg = segundaDe(new Date(p.data_inicio + 'T12:00:00'));
+    const fim = p.ate_fim_livro ? somaDias(p.data_inicio, Math.ceil((tot - pi) / ppd) - 1) : somaDias(seg, 6);
+    let m = p.id ? M(p.id) : st.metas.find(x => x.livro_id === p.livro_id && x.semana === seg);
+    if (!m) { m = { id: 'novo' + Date.now(), livro_id: p.livro_id, pagina_atual: pi }; st.metas.push(m); }
+    else if (!p.id) m.pagina_atual = pi;
+    Object.assign(m, { semana: seg, data_inicio: p.data_inicio, data_fim: fim, ate_fim_livro: !!p.ate_fim_livro, pagina_inicial: pi, paginas_por_dia: ppd });
+  }
+  else if (a === 'delete_titulo') st.titulos = st.titulos.filter(t => t.id !== p.id);
+  else if (a === 'delete_livro') st.livros = st.livros.filter(l => l.id !== p.id);
+  else if (a === 'delete_meta') st.metas = st.metas.filter(m => m.id !== p.id);
+  else if (a === 'concluir_leitura') Object.assign(L(p.id) || {}, { status: 'lido', ano_leitura: Number(p.ano) });
+  else if (a === 'iniciar_leitura') Object.assign(L(p.id) || {}, { status: 'lendo', posicao_fila: null });
+  else if (a === 'set_pagina') { const m = M(p.id); if (m) m.pagina_atual = Number(p.pagina); }
+  else if (a === 'toggle_dia') {
+    const m = M(p.meta_id), tem = st.dias.some(d => d.meta_id === p.meta_id && d.dia === p.dia);
+    if (p.feito && !tem) { st.dias.push({ meta_id: p.meta_id, dia: p.dia }); if (m) m.pagina_atual += m.paginas_por_dia; }
+    else if (!p.feito && tem) { st.dias = st.dias.filter(d => !(d.meta_id === p.meta_id && d.dia === p.dia)); if (m) m.pagina_atual = Math.max(0, m.pagina_atual - m.paginas_por_dia); }
+  } else return false;
+  return true;
+}
+async function run(action, payload) {
+  const ok = otimista(action, payload);
+  if (ok) render();
+  pend++;
+  let erro = false;
+  try { await api(action, payload); } catch (e) { erro = true; if (e.message !== 'Sessão expirada') alert(e.message); }
+  pend--;
+  if ((erro || !ok || RELOAD.has(action) || action === 'save_titulo' && !payload.id) && pend === 0) load();
+}
 
 // ---------- Views ----------
 function render() {
@@ -225,7 +278,7 @@ function viewTitulos(host) {
       const sub = [t.temporadas_assistidas != null && `${t.temporadas_assistidas} temp.`, t.proxima_temporada && `próx.: ${t.proxima_temporada}`, t.streaming, t.ano].filter(Boolean).join(' · ');
       const nova = emAndamento && t.tem_nova_temporada;
       const acoes = st.tab === 'series' && st.sub === 'para_assistir' && t.tipo === 'serie' ? `<button data-mini="${t.id}" title="Série que não terá segunda temporada">Minissérie</button>` : emAndamento ? `<button class="flag ${nova ? 'on' : ''}" data-flag="${t.id}" title="Marcar/desmarcar temporada nova disponível">${nova ? 'Nova temp.' : 'Marcar nova'}</button>${nova ? `<button class="primary" data-vi="${t.id}" title="Soma 1 às temporadas assistidas e remove a marca">Assisti</button>` : ''}` : '';
-      return `<div class="row ${nova ? 'novo' : ''}"><span class="n">${t.ranking ?? ''}</span>${cap(t)}<div class="t">${esc(t.titulo)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
+      return `<div class="row ${nova ? 'novo' : ''}"><span class="n">${t.ranking ?? ''}</span>${cap(t, capLista(items.length))}<div class="t">${esc(t.titulo)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
         ${t.nota != null ? `<span class="pill">★ ${t.nota}</span>` : ''}${acoes}
         <span class="actions"><button class="link" data-e="${t.id}">editar</button></span></div>`;
     }).join('') : '<p class="muted">Nada por aqui.</p>';
@@ -305,7 +358,7 @@ function viewLivros(host) {
       const act = l.status === 'para_ler' ? `<button data-go="${l.id}" ${elegivel(l) ? '' : 'disabled'} class="${elegivel(l) ? 'primary' : ''}">Começar</button>`
         : l.status === 'lendo' ? `<button data-fin="${l.id}" class="primary">Concluir</button>` : '';
       const b = l.status === 'para_ler' ? banda(l.posicao_fila) : 0;
-      return `<div class="row" ${b ? `data-b="${b}"` : ''}><span class="n">${l.posicao_fila ?? ''}</span>${cap(l)}<div class="t">${esc(l.titulo)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
+      return `<div class="row" ${b ? `data-b="${b}"` : ''}><span class="n">${l.posicao_fila ?? ''}</span>${cap(l, capLista(shown.length))}<div class="t">${esc(l.titulo)}${sub ? `<small>${esc(sub)}</small>` : ''}</div>
         ${l.ano_leitura ? `<span class="pill">${l.ano_leitura}</span>` : ''}${act}<span class="actions"><button class="link" data-e="${l.id}">editar</button></span></div>`;
     }).join('') : '<p class="muted">Nada por aqui.</p>') + (items.length ? `<p class="muted" style="text-align:center">${items.length} ${items.length === 1 ? 'livro' : 'livros'}${st.sub === 'fila' ? ' na fila' : ''}</p>` : '');
     const L = id => st.livros.find(l => l.id === id);
@@ -372,13 +425,13 @@ function viewMeta(host) {
     const pct = l.total_paginas ? Math.min(100, Math.round(m.pagina_atual / l.total_paginas * 100)) : null;
     const periodo = m.data_inicio > st.semana || m.data_fim < fimSem || m.ate_fim_livro ? ` · ${ddmm(m.data_inicio)} a ${ddmm(m.data_fim)}${m.ate_fim_livro ? ' (até o fim do livro)' : ''}` : '';
     const repete = !m.ate_fim_livro && m.data_fim <= fimSem;
-    return `<div class="row meta"><div style="display:flex;gap:10px;align-items:center;width:100%">${cap(l)}<div class="t">${esc(l.titulo)}
+    return `<div class="row meta"><div style="display:flex;gap:10px;align-items:center;width:100%">${cap(l, 'xl')}<div class="t">${esc(l.titulo)}
         <small>${m.paginas_por_dia} pág./dia · ${feitos.size}/${totalDias} dias · ${m.pagina_atual - m.pagina_inicial} pág. lidas${pct != null ? ` · ${pct}% do livro` : ''}${periodo}</small></div>
         <label class="pg">pág. <input type="number" min="0" value="${m.pagina_atual}" data-pg="${m.id}"></label>
         <button class="link" data-em="${m.id}">editar</button></div>
       <div class="dias">${DIAS_SEM.map((n, i) => { const d = somaDias(st.semana, i), fora = d < m.data_inicio || d > m.data_fim; return `<button class="dia ${feitos.has(d) ? 'on' : ''} ${d === hoje ? 'hoje' : ''}" ${fora ? 'disabled style="opacity:.35"' : ''} data-m="${m.id}" data-d="${d}" aria-pressed="${feitos.has(d)}">${n}<br>${d.slice(8)}</button>`; }).join('')}</div>
       ${repete ? `<div style="display:flex;gap:8px"><button class="link" data-prox="${m.id}">Repetir na próxima semana</button></div>` : ''}</div>`;
-  }).join('') : '<p class="muted">Nenhuma meta nesta semana. Use <b>+ Nova meta</b> para cadastrar a página em que você está e quantas páginas quer ler por dia.</p>';
+  }).join('') : '<p class="muted">Nenhuma meta nesta semana.</p>';
   const M = id => st.metas.find(m => m.id === id);
   $('#list').querySelectorAll('[data-d]').forEach(b => (b.onclick = () => run('toggle_dia', { meta_id: b.dataset.m, dia: b.dataset.d, feito: !b.classList.contains('on') })));
   $('#list').querySelectorAll('[data-pg]').forEach(i => (i.onchange = () => run('set_pagina', { id: i.dataset.pg, pagina: i.value })));
@@ -411,7 +464,7 @@ function editMeta(m) {
     if (fim && tot > pi && ppd > 0) {
       const n = Math.ceil((tot - pi) / ppd);
       $('#m-info').textContent = `Leitura de ${ddmm(ini)} a ${ddmm(somaDias(ini, n - 1))}: ${n} ${n === 1 ? 'dia' : 'dias'}, um por dia, até a página ${tot}.`;
-    } else $('#m-info').textContent = `Meta de ${ddmm(ini)} até domingo, ${ddmm(somaDias(segundaDe(new Date(ini + 'T12:00:00')), 6))}. Ao marcar um dia, as páginas da meta são somadas à página atual.`;
+    } else $('#m-info').textContent = `Meta de ${ddmm(ini)} até domingo, ${ddmm(somaDias(segundaDe(new Date(ini + 'T12:00:00')), 6))}.`;
   };
   ['m-inicio', 'm-ini', 'm-ppd', 'm-tot', 'm-fim'].forEach(id => ($('#' + id).oninput = info));
   const liv = $('#m-livro');
