@@ -509,14 +509,14 @@ function viewRanking(host) {
 
   const editor = (titulo, slots, onSave) => {
     dlg.innerHTML = `<form method="dialog"><h3 style="margin-top:0">${esc(titulo)}</h3>
-      ${slots.map((s, i) => `<div class="slot"><span>${esc(s.label)}</span><input data-i="${i}" list="dl-${i}" value="${esc(s.value)}" placeholder="título do livro"><datalist id="dl-${i}">${s.books.map(b => `<option value="${esc(b)}">`).join('')}</datalist></div>`).join('')}
-      <p class="muted" style="font-size:12px">Digite ou escolha um livro já lido. Se o título não existir, ele é cadastrado como lido. Deixe em branco para limpar a posição.</p>
+      ${slots.map((s, i) => s.lista ? `<div class="slot"><span>${esc(s.label)}</span><select data-i="${i}"><option value="">—</option>${[...new Set([...s.books, ...(s.value ? [s.value] : [])])].sort((a, b) => a.localeCompare(b)).map(b => `<option ${b === s.value ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select></div>` : `<div class="slot"><span>${esc(s.label)}</span><input data-i="${i}" list="dl-${i}" value="${esc(s.value)}" placeholder="título do livro"><datalist id="dl-${i}">${s.books.map(b => `<option value="${esc(b)}">`).join('')}</datalist></div>`).join('')}
+      <p class="muted" style="font-size:12px">${slots.some(s => s.lista) ? 'Escolha entre os livros lidos naquele ano. Use — para limpar a posição.' : 'Digite ou escolha um livro já lido. Se o título não existir, ele é cadastrado como lido. Deixe em branco para limpar a posição.'}</p>
       <div style="display:flex;gap:8px;margin-top:12px"><button class="primary" value="ok">Salvar</button><button value="x" formnovalidate>Cancelar</button></div></form>`;
-    dlg.onclose = () => { dlg.onclose = null; if (dlg.returnValue === 'ok') onSave([...dlg.querySelectorAll('input[data-i]')].map(i => i.value.trim())); };
+    dlg.onclose = () => { dlg.onclose = null; if (dlg.returnValue === 'ok') onSave([...dlg.querySelectorAll('[data-i]')].map(i => i.value.trim())); };
     dlg.showModal();
   };
   const salvar = (tipo, ano, titulos) => api('save_ranking', { tipo, ano, titulos });
-  const pos10 = (tipo, ano) => Array.from({ length: 10 }, (_, i) => ({ label: `${i + 1}º`, value: rk(tipo, ano).find(r => r.posicao === i + 1) ? nome(rk(tipo, ano).find(r => r.posicao === i + 1).livro_id) : '', books: lidos(ano) }));
+  const pos10 = (tipo, ano) => Array.from({ length: 10 }, (_, i) => ({ label: `${i + 1}º`, value: rk(tipo, ano).find(r => r.posicao === i + 1) ? nome(rk(tipo, ano).find(r => r.posicao === i + 1).livro_id) : '', books: lidos(ano), lista: ano != null }));
   const guard = p => p.catch(e => e.message !== 'Sessão expirada' && alert(e.message)).then(load);
 
   host.querySelectorAll('[data-rk]').forEach(b => (b.onclick = () => {
@@ -531,7 +531,7 @@ function viewRanking(host) {
     } else {
       const primeiro = Math.min(2021, ...rk('melhor_ano').map(r => r.ano));
       const anosM = Array.from({ length: atual - primeiro + 1 }, (_, i) => atual - i);
-      const slots = anosM.map(a => { const r = rk('melhor_ano', a)[0]; return { label: String(a), value: r ? nome(r.livro_id) : '', books: lidos(a) }; });
+      const slots = anosM.map(a => { const r = rk('melhor_ano', a)[0]; return { label: String(a), value: r ? nome(r.livro_id) : '', books: lidos(a), lista: true }; });
       editor('Melhor leitura de cada ano', slots, async t => {
         try { for (let i = 0; i < anosM.length; i++) if (t[i] !== slots[i].value) await salvar('melhor_ano', anosM[i], t[i] ? [t[i]] : []); }
         catch (e) { if (e.message !== 'Sessão expirada') alert(e.message); }
