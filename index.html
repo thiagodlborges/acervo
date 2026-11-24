@@ -187,7 +187,7 @@ async function load() {
 }
 function logout() { localStorage.removeItem(TOKEN_KEY); loginView(); }
 // Atualiza a tela na hora (otimista) e grava em segundo plano; só recarrega do servidor quando o resultado depende dele.
-let pend = 0;
+let pend = 0, fila = Promise.resolve(); // fila: as gravações vão ao servidor uma por vez, na ordem dos toques
 const RELOAD = new Set(['save_livro', 'iniciar_leitura', 'save_meta', 'save_ranking']);
 function otimista(a, p) {
   const T = id => st.titulos.find(t => t.id === id), L = id => st.livros.find(l => l.id === id), M = id => st.metas.find(m => m.id === id);
@@ -222,12 +222,15 @@ function otimista(a, p) {
 }
 async function run(action, payload) {
   const ok = otimista(action, payload);
-  if (ok) render();
+  if (ok && action !== 'set_pagina') render(); // set_pagina: o campo já mostra o valor; re-renderizar engoliria o toque seguinte
   pend++;
   let erro = false;
-  try { await api(action, payload); } catch (e) { erro = true; if (e.message !== 'Sessão expirada') alert(e.message); }
+  const req = fila.then(() => api(action, payload)); fila = req.catch(() => {});
+  try { await req; } catch (e) { erro = true; if (e.message !== 'Sessão expirada') alert(e.message); }
   pend--;
   if ((erro || !ok || RELOAD.has(action) || action === 'save_titulo' && !payload.id) && pend === 0) load();
+  // Confere páginas/dias com o servidor quando a fila esvazia (sem mexer na tela se o usuário estiver digitando).
+  else if (pend === 0 && (action === 'toggle_dia' || action === 'set_pagina') && !document.activeElement?.matches?.('input,textarea,select')) load();
 }
 
 // ---------- Views ----------
